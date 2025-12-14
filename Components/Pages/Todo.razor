@@ -1,0 +1,184 @@
+@page "/todo"
+@inject IJSRuntime JSRuntime
+
+<div class="container mt-4">
+    <div class="row justify-content-center">
+        <div class="col-md-8">
+            <div class="text-center mb-4">
+                <div class="d-inline-block p-3 mb-3" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.1);">
+                    <h1 class="display-5 fw-bold text-white mb-0" style="text-shadow: 2px 2px 4px rgba(0,0,0,0.2);">
+                        ✓ Mis Tareas
+                    </h1>
+                </div>
+                @if (tareas.Count > 0)
+                {
+                    var tareasPendientes = tareas.Count(t => !t.Completada);
+                    <p class="lead text-muted mb-0">
+                        Tienes <span class="badge bg-primary fs-6 px-3 py-2">@tareasPendientes</span> 
+                        @(tareasPendientes == 1 ? "tarea pendiente" : "tareas pendientes")
+                        @if (tareas.Count(t => t.Completada) > 0)
+                        {
+                            <span class="badge bg-success fs-6 px-3 py-2 ms-2">@tareas.Count(t => t.Completada) completadas</span>
+                        }
+                    </p>
+                }
+                else
+                {
+                    <p class="lead text-muted mb-0">Organiza tu día de manera eficiente</p>
+                }
+            </div>
+            
+            <div class="card shadow-sm">
+                <div class="card-body">
+                    <div class="input-group mb-3">
+                        <input type="text" 
+                               class="form-control" 
+                               placeholder="Ingrese una nueva tarea..." 
+                               @bind="nuevaTarea"
+                               @onkeypress="HandleKeyPress" />
+                        <button class="btn btn-primary" 
+                                type="button" 
+                                @onclick="AgregarTarea"
+                                disabled="@string.IsNullOrWhiteSpace(nuevaTarea)">
+                            Agregar
+                        </button>
+                    </div>
+
+                    @if (tareas.Count == 0)
+                    {
+                        <div class="alert alert-info" role="alert">
+                            No hay tareas. ¡Agrega una nueva tarea para comenzar!
+                        </div>
+                    }
+                    else
+                    {
+                        <ul class="list-group">
+                            @foreach (var tarea in tareas)
+                            {
+                                <li class="list-group-item d-flex justify-content-between align-items-center @(tarea.Completada ? "bg-light" : "")">
+                                    <span class="@(tarea.Completada ? "text-decoration-line-through text-muted" : "")" style="flex: 1;">
+                                        @tarea.Texto
+                                    </span>
+                                    <div class="ms-2">
+                                        @if (!tarea.Completada)
+                                        {
+                                            <button class="btn btn-success btn-sm me-2" 
+                                                    @onclick="() => MarcarCompletada(tarea.Id)"
+                                                    title="Marcar como completada">
+                                                ✓ Completar
+                                            </button>
+                                        }
+                                        else
+                                        {
+                                            <button class="btn btn-outline-secondary btn-sm me-2" 
+                                                    @onclick="() => MarcarCompletada(tarea.Id)"
+                                                    title="Marcar como pendiente">
+                                                ↻ Pendiente
+                                            </button>
+                                        }
+                                        <button class="btn btn-danger btn-sm" 
+                                                @onclick="() => EliminarTarea(tarea.Id)"
+                                                title="Eliminar tarea">
+                                            Eliminar
+                                        </button>
+                                    </div>
+                                </li>
+                            }
+                        </ul>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    private List<TareaItem> tareas = new();
+    private string nuevaTarea = string.Empty;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await CargarTareas();
+            StateHasChanged();
+        }
+    }
+
+    private async Task CargarTareas()
+    {
+        try
+        {
+            var tareasJson = await JSRuntime.InvokeAsync<string>("getLocalStorageItem", "tareas");
+            if (!string.IsNullOrEmpty(tareasJson))
+            {
+                tareas = System.Text.Json.JsonSerializer.Deserialize<List<TareaItem>>(tareasJson) ?? new();
+            }
+        }
+        catch
+        {
+            // Si hay error, simplemente empezamos con una lista vacía
+            tareas = new();
+        }
+    }
+
+    private async Task GuardarTareas()
+    {
+        try
+        {
+            var tareasJson = System.Text.Json.JsonSerializer.Serialize(tareas);
+            await JSRuntime.InvokeVoidAsync("setLocalStorageItem", "tareas", tareasJson);
+        }
+        catch
+        {
+            // Manejo silencioso de errores
+        }
+    }
+
+    private async Task AgregarTarea()
+    {
+        if (!string.IsNullOrWhiteSpace(nuevaTarea))
+        {
+            var tarea = new TareaItem
+            {
+                Id = Guid.NewGuid().ToString(),
+                Texto = nuevaTarea.Trim()
+            };
+            tareas.Add(tarea);
+            nuevaTarea = string.Empty;
+            await GuardarTareas();
+        }
+    }
+
+    private async Task EliminarTarea(string id)
+    {
+        tareas.RemoveAll(t => t.Id == id);
+        await GuardarTareas();
+    }
+
+    private async Task MarcarCompletada(string id)
+    {
+        var tarea = tareas.FirstOrDefault(t => t.Id == id);
+        if (tarea != null)
+        {
+            tarea.Completada = !tarea.Completada;
+            await GuardarTareas();
+        }
+    }
+
+    private async Task HandleKeyPress(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" && !string.IsNullOrWhiteSpace(nuevaTarea))
+        {
+            await AgregarTarea();
+        }
+    }
+
+    private class TareaItem
+    {
+        public string Id { get; set; } = string.Empty;
+        public string Texto { get; set; } = string.Empty;
+        public bool Completada { get; set; } = false;
+    }
+}
+
